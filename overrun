@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# sub-mounts you want to access.
+# because overlayfs don't expose sub-mounts,
+# we have to mount each sub-mounts if needed.
+#SUB_MOUNTS=( /home )
+
+
+set -e
+
+tmp_dir=$(mktemp -d)
+chmod 755 "${tmp_dir}"
+
+work_dir="${tmp_dir}/work"
+upper_dir="${tmp_dir}/upper"
+root_dir="${tmp_dir}/root"
+mounted=()
+
+mkdir -p "${work_dir}" "${upper_dir}" "${root_dir}"
+
+i=0
+for m in / "${SUB_MOUNTS[@]}"; do
+  lower="${m}"
+  work="${work_dir}/${i}"
+  upper="${upper_dir}/${m#/}"
+  root="${root_dir}/${m#/}"
+
+  mkdir -p "${work}"
+  mkdir -p "${upper}"
+
+  mount -t overlay overlay -olowerdir="${lower}",upperdir="${upper}",workdir="${work}" "${root}"
+  mounted=( "${root}" "${mounted[@]}" )
+
+  : $(( i++ ))
+done
+
+set +e
+
+systemd-nspawn -M "${tmp_dir##*/tmp.}" -D "${root_dir}" --network-veth "$@" sh -l -c 'cd "$0"; exec "$@"' "$PWD" "${SHELL:-/bin/bash}"
+
+umount "${mounted[@]}"
